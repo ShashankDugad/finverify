@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# Data files (too large for git)
+data/raw/*
+data/processed/*
+data/embeddings/*
+data/indexes/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/embeddings/.gitkeep
+!data/indexes/.gitkeep
+
+# Model checkpoints (too large)
+models/checkpoints/*
+!models/checkpoints/.gitkeep
+
+# Outputs
+outputs/results/*
+outputs/logs/*
+outputs/figures/*
+!outputs/results/.gitkeep
+!outputs/logs/.gitkeep
+!outputs/figures/.gitkeep
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+*.env
+.env
+secrets.yaml
+
+# Large files
+*.h5
+*.pkl
+*.bin
+*.safetensors
+*.parquet
+*.arrow
+*.faiss
