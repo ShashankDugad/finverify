@@ -1,0 +1,28 @@
+# Data files
+data/raw/*
+data/processed/*
+data/indexes/*
+*.json
+*.pkl
+*.faiss
+*.csv
+*.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.ipynb_checkpoints/
+
+# Environment
+venv/
+.env
+
+# Logs
+*.log
+logs/
+
+# Keep structure
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/indexes/.gitkeep
