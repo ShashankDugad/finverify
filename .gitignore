@@ -2,21 +2,62 @@
 data/raw/*
 data/processed/*
 data/indexes/*
+data/embeddings/*
 *.json
 *.pkl
 *.faiss
 *.csv
 *.txt
+*.parquet
+*.arrow
+*.h5
+*.bin
+*.safetensors
 
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
-.ipynb_checkpoints/
-
-# Environment
+*.so
+.Python
+env/
 venv/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Model checkpoints
+models/checkpoints/*
+!models/checkpoints/.gitkeep
+
+# Outputs
+outputs/results/*
+outputs/logs/*
+outputs/figures/*
+!outputs/results/.gitkeep
+!outputs/logs/.gitkeep
+!outputs/figures/.gitkeep
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment & Secrets
 .env
+*.env
+secrets.yaml
 
 # Logs
 *.log
@@ -26,3 +67,4 @@ logs/
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/indexes/.gitkeep
+!data/embeddings/.gitkeep

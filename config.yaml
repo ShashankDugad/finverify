@@ -1,0 +1,162 @@
+# FinVERIFY Configuration File
+
+project:
+  name: "finverify"
+  version: "0.1.0"
+  seed: 42
+
+paths:
+  data_raw: "data/raw"
+  data_processed: "data/processed"
+  embeddings: "data/embeddings"
+  indexes: "data/indexes"
+  checkpoints: "models/checkpoints"
+  results: "outputs/results"
+  logs: "outputs/logs"
+
+data:
+  # Document corpus
+  corpus:
+    sec_edgar_url: "https://huggingface.co/datasets/eloukas/edgar-corpus"
+    financial_news_url: "https://huggingface.co/datasets/financial_phrasebank"
+    target_tokens: 200000000  # 200M tokens
+  
+  # Evaluation datasets
+  benchmarks:
+    financebench:
+      name: "FinanceBench"
+      source: "kaggle"
+      size: 10000
+    tatqa:
+      name: "TATQA"
+      source: "huggingface"
+      hf_path: "stanford/tatqa"
+      size: 16500
+  
+  # Training data
+  training:
+    glaive_rag:
+      hf_path: "glaiveai/RAG-v1"
+      size: 10000
+  
+  # Chunking parameters
+  chunk_size: 512
+  chunk_overlap: 128
+
+models:
+  # Embedding model
+  embedder:
+    name: "BAAI/bge-large-en-v1.5"
+    dimension: 1024
+    batch_size: 256
+    device: "cuda"  # or "cpu"
+  
+  # Generator model
+  generator:
+    name: "google/flan-t5-xl"
+    max_input_length: 2048
+    max_output_length: 256
+    batch_size: 8
+    device: "cuda"
+  
+  # Reranker model
+  reranker:
+    name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    batch_size: 64
+    threshold: 0.7
+
+retrieval:
+  # MAINRAG multi-aspect retrieval
+  mainrag:
+    semantic:
+      enabled: true
+      top_k: 50
+      similarity: "cosine"
+    
+    lexical:
+      enabled: true
+      top_k: 50
+      bm25_k1: 1.5
+      bm25_b: 0.75
+    
+    entity:
+      enabled: true
+      top_k: 30
+      ner_model: "en_core_web_sm"
+    
+    temporal:
+      enabled: true
+      top_k: 20
+  
+  # Reciprocal Rank Fusion
+  rrf:
+    k_value: 60
+    merge_top_k: 100
+  
+  # Cross-encoder reranking
+  reranking:
+    enabled: true
+    final_top_k: 10
+
+generation:
+  temperature: 0.7
+  num_beams: 4
+  do_sample: false
+  early_stopping: true
+  
+  # Prompt template
+  prompt_format: |
+    Query: {query}
+    
+    Evidence:
+    {evidence}
+    
+    Task: Based on the evidence, answer the query and classify as:
+    - SUPPORTED (evidence confirms the claim)
+    - REFUTED (evidence contradicts the claim)
+    - NOT_ENOUGH_INFO (insufficient evidence)
+    
+    Provide citations using [doc_id].
+    
+    Answer:
+
+evaluation:
+  metrics:
+    - "f1"
+    - "exact_match"
+    - "bertscore"
+    - "verdict_accuracy"
+    - "retrieval_recall@10"
+    - "retrieval_precision@10"
+    - "evidence_f1"
+  
+  split_ratio:
+    train: 0.8
+    val: 0.1
+    test: 0.1
+
+training:
+  epochs: 3
+  learning_rate: 5e-5
+  weight_decay: 0.01
+  warmup_steps: 500
+  gradient_accumulation_steps: 4
+  fp16: true
+  save_steps: 1000
+  eval_steps: 500
+  logging_steps: 100
+
+demo:
+  gradio:
+    port: 7860
+    share: false
+    max_examples: 5
+  
+  api:
+    host: "0.0.0.0"
+    port: 8000
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  save_to_file: true
