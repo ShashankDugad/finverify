@@ -267,3 +267,52 @@ All code is pushed. Data files are NOT in git (too large) - copy from HPC.
 ---
 
 **Good luck team! 🚀**
+
+---
+
+## HOW TO COPY DATA (For Teammates)
+
+### Step 1: Create Your Directory
+```bash
+cd /scratch/$USER
+mkdir -p finverify
+cd finverify
+```
+
+### Step 2: Copy Data
+```bash
+# Copy all data (takes 5-10 minutes, ~10GB)
+cp -r /scratch/sd5957/finverify/data ./
+
+# Copy source code
+cp -r /scratch/sd5957/finverify/src ./
+```
+
+### Step 3: Verify
+```bash
+# Check data copied successfully
+ls -lh data/processed/
+ls -lh data/indexes/bm25/
+ls -lh data/indexes/faiss/
+
+# Should see:
+# chunks.json (1.9GB)
+# embeddings.npy (2.6GB)
+# bm25 index (3.3GB)
+# faiss index (2.6GB)
+```
+
+### Quick Copy Command (All-in-One)
+```bash
+cd /scratch/$USER && \
+mkdir -p finverify && \
+cd finverify && \
+cp -r /scratch/sd5957/finverify/data . && \
+cp -r /scratch/sd5957/finverify/src . && \
+echo "✓ Copy complete!"
+```
+
+**Estimated time:** 5-10 minutes  
+**Space needed:** ~10GB free in your /scratch/
+
+---
