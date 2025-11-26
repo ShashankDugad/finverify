@@ -316,3 +316,33 @@ echo "✓ Copy complete!"
 **Space needed:** ~10GB free in your /scratch/
 
 ---
+
+---
+
+## FINAL: Data Access via TAR Archive
+
+### Download and Extract
+```bash
+cd /scratch/$USER
+mkdir -p finverify
+
+# Copy tar archive
+cp /home/sd5957/finverify_data.tar.gz .
+
+# Extract (~5 minutes)
+tar -xzf finverify_data.tar.gz
+
+# Cleanup
+rm finverify_data.tar.gz
+
+# Verify data
+ls -lh finverify/data/processed/
+ls -lh finverify/data/indexes/bm25/
+ls -lh finverify/data/indexes/faiss/
+```
+
+**Archive Location:** `/home/sd5957/finverify_data.tar.gz`  
+**Archive Size:** 5.7GB  
+**Extract Time:** ~5 minutes
+
+---
