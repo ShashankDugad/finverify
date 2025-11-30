@@ -11,11 +11,20 @@ import json
 import pickle
 import time
 import argparse
+import sys
 from pathlib import Path
 from typing import List, Dict, Tuple
 from tqdm import tqdm
 import torch
-from transformers import T5Tokenizer, T5ForConditionalGeneration
+from transformers import AutoTokenizer, T5ForConditionalGeneration
+
+# Import evaluation metrics
+try:
+    from evaluation_metrics import evaluate_predictions, print_metrics
+except ImportError:
+    print("⚠️  evaluation_metrics.py not found. Using basic metrics only.")
+    evaluate_predictions = None
+    print_metrics = None
 
 
 class BM25T5Baseline:
@@ -65,7 +74,7 @@ class BM25T5Baseline:
 
         # Load T5 model
         print(f"\nLoading {model_name}...")
-        self.tokenizer = T5Tokenizer.from_pretrained(model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = T5ForConditionalGeneration.from_pretrained(model_name)
         self.model.to(self.device)
         self.model.eval()
@@ -99,12 +108,16 @@ class BM25T5Baseline:
         if top_k is None:
             top_k = self.top_k
 
+        # Tokenize query (simple whitespace tokenization)
         query_tokens = query.lower().split()
 
+        # Get BM25 scores
         scores = self.bm25.get_scores(query_tokens)
 
+        # Get top-K indices
         top_indices = scores.argsort()[-top_k:][::-1]
 
+        # Prepare results
         results = []
         for idx in top_indices:
             chunk = self.chunks[idx].copy()
@@ -125,7 +138,7 @@ class BM25T5Baseline:
         Returns:
             Formatted prompt string
         """
-
+        # Build evidence text
         evidence_texts = []
         for i, chunk in enumerate(evidence, 1):
             text = chunk["text"].strip()
@@ -134,9 +147,11 @@ class BM25T5Baseline:
 
         evidence_str = "\n\n".join(evidence_texts)
 
+        # Truncate if too long
         if len(evidence_str) > self.max_evidence_length * 4:  # Rough char estimate
             evidence_str = evidence_str[: self.max_evidence_length * 4] + "..."
 
+        # Create prompt
         prompt = f"""Answer the following question based on the provided evidence.
 
 Question: {query}
@@ -159,7 +174,7 @@ Answer:"""
         Returns:
             Generated answer
         """
-
+        # Tokenize
         inputs = self.tokenizer(
             prompt,
             max_length=self.max_evidence_length,
@@ -167,6 +182,7 @@ Answer:"""
             return_tensors="pt",
         ).to(self.device)
 
+        # Generate
         with torch.no_grad():
             outputs = self.model.generate(
                 **inputs,
@@ -176,6 +192,7 @@ Answer:"""
                 no_repeat_ngram_size=3,
             )
 
+        # Decode
         answer = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
         return answer.strip()
 
@@ -266,12 +283,14 @@ def load_financebench(data_path: Path, num_questions: int = None) -> List[Dict]:
     return questions
 
 
-def evaluate_predictions(predictions: List[Dict], ground_truth: List[Dict]) -> Dict:
+def evaluate_predictions_basic(
+    predictions: List[Dict], ground_truth: List[Dict]
+) -> Dict:
     """
-    Evaluate predictions against ground truth
+    Basic evaluation (latency only) - fallback if evaluation_metrics.py not available
 
-    Note: This is a simplified evaluation. For full evaluation,
-    you should use proper metrics like F1, EM, etc.
+    Note: This is a simplified evaluation. For full metrics (EM, F1, Recall@10),
+    use the evaluation_metrics module.
     """
     metrics = {
         "num_questions": len(predictions),
@@ -286,12 +305,15 @@ def evaluate_predictions(predictions: List[Dict], ground_truth: List[Dict]) -> D
         metrics["avg_generate_time_ms"] += pred["generate_time_ms"]
         metrics["avg_total_time_ms"] += pred["total_time_ms"]
 
-    metrics["avg_retrieve_time_ms"] /= len(predictions)
-    metrics["avg_generate_time_ms"] /= len(predictions)
-    metrics["avg_total_time_ms"] /= len(predictions)
+    if metrics["num_questions"] > 0:
+        metrics["avg_retrieve_time_ms"] /= metrics["num_questions"]
+        metrics["avg_generate_time_ms"] /= metrics["num_questions"]
+        metrics["avg_total_time_ms"] /= metrics["num_questions"]
 
-    # TODO: Add F1, EM metrics when ground truth is available
-    # This would require implementing string matching and F1 calculation
+    print("\n⚠️  Using basic metrics (latency only)")
+    print(
+        "   For full metrics (EM, F1, Recall@10), ensure evaluation_metrics.py is present"
+    )
 
     return metrics
 
@@ -365,19 +387,42 @@ def eval_mode(num_questions: int = 50):
 
         predictions.append(result)
 
-    # Evaluate
+    # Evaluate with comprehensive or basic metrics
     print("\nEvaluating results...")
-    metrics = evaluate_predictions(predictions, questions)
 
-    # Print metrics
-    print("\n" + "=" * 70)
-    print("EVALUATION RESULTS")
-    print("=" * 70)
-    print(f"Questions: {metrics['num_questions']}")
-    print(f"Avg Retrieval Time: {metrics['avg_retrieve_time_ms']:.1f}ms")
-    print(f"Avg Generation Time: {metrics['avg_generate_time_ms']:.1f}ms")
-    print(f"Avg Total Time: {metrics['avg_total_time_ms']:.1f}ms")
-    print("=" * 70)
+    if evaluate_predictions is not None:
+        # Use comprehensive metrics (EM, F1, Recall@10)
+        metrics = evaluate_predictions(
+            predictions, questions, compute_retrieval_metrics=False
+        )
+
+        # Print formatted results
+        if print_metrics is not None:
+            print_metrics(metrics, "BM25+T5")
+        else:
+            # Manual print if print_metrics not available
+            print("\n" + "=" * 70)
+            print("EVALUATION RESULTS")
+            print("=" * 70)
+            print(f"Exact Match: {metrics.get('exact_match', 0):.2f}%")
+            print(f"F1 Score: {metrics.get('f1_score', 0):.2f}%")
+            print(f"Avg Retrieval Time: {metrics['avg_retrieve_time_ms']:.1f}ms")
+            print(f"Avg Generation Time: {metrics['avg_generate_time_ms']:.1f}ms")
+            print(f"Avg Total Time: {metrics['avg_total_time_ms']:.1f}ms")
+            print("=" * 70)
+    else:
+        # Fall back to basic metrics (latency only)
+        metrics = evaluate_predictions_basic(predictions, questions)
+
+        # Print basic metrics
+        print("\n" + "=" * 70)
+        print("EVALUATION RESULTS (Basic)")
+        print("=" * 70)
+        print(f"Questions: {metrics['num_questions']}")
+        print(f"Avg Retrieval Time: {metrics['avg_retrieve_time_ms']:.1f}ms")
+        print(f"Avg Generation Time: {metrics['avg_generate_time_ms']:.1f}ms")
+        print(f"Avg Total Time: {metrics['avg_total_time_ms']:.1f}ms")
+        print("=" * 70)
 
     # Save results
     output_dir = baseline.base_dir / "outputs" / "results"

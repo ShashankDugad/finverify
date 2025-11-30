@@ -11,6 +11,7 @@ import json
 import pickle
 import time
 import argparse
+import sys
 from pathlib import Path
 from typing import List, Dict
 from tqdm import tqdm
@@ -18,7 +19,15 @@ import numpy as np
 import torch
 import faiss
 from sentence_transformers import SentenceTransformer
-from transformers import T5Tokenizer, T5ForConditionalGeneration
+from transformers import AutoTokenizer, T5ForConditionalGeneration
+
+# Import evaluation metrics
+try:
+    from evaluation_metrics import evaluate_predictions, print_metrics
+except ImportError:
+    print("⚠️  evaluation_metrics.py not found. Using basic metrics only.")
+    evaluate_predictions = None
+    print_metrics = None
 
 
 class DPRT5Baseline:
@@ -76,7 +85,7 @@ class DPRT5Baseline:
 
         # Load T5 model
         print(f"\nLoading generator: {generator_model}...")
-        self.tokenizer = T5Tokenizer.from_pretrained(generator_model)
+        self.tokenizer = AutoTokenizer.from_pretrained(generator_model)
         self.generator = T5ForConditionalGeneration.from_pretrained(generator_model)
         self.generator.to(self.device)
         self.generator.eval()
@@ -289,12 +298,14 @@ def load_financebench(data_path: Path, num_questions: int = None) -> List[Dict]:
     return questions
 
 
-def evaluate_predictions(predictions: List[Dict], ground_truth: List[Dict]) -> Dict:
+def evaluate_predictions_basic(
+    predictions: List[Dict], ground_truth: List[Dict]
+) -> Dict:
     """
-    Evaluate predictions against ground truth
+    Basic evaluation (latency only) - fallback if evaluation_metrics.py not available
 
-    Note: This is a simplified evaluation. For full evaluation,
-    you should use proper metrics like F1, EM, etc.
+    Note: This is a simplified evaluation. For full metrics (EM, F1, Recall@10),
+    use the evaluation_metrics module.
     """
     metrics = {
         "num_questions": len(predictions),
@@ -309,12 +320,15 @@ def evaluate_predictions(predictions: List[Dict], ground_truth: List[Dict]) -> D
         metrics["avg_generate_time_ms"] += pred["generate_time_ms"]
         metrics["avg_total_time_ms"] += pred["total_time_ms"]
 
-    metrics["avg_retrieve_time_ms"] /= len(predictions)
-    metrics["avg_generate_time_ms"] /= len(predictions)
-    metrics["avg_total_time_ms"] /= len(predictions)
+    if metrics["num_questions"] > 0:
+        metrics["avg_retrieve_time_ms"] /= metrics["num_questions"]
+        metrics["avg_generate_time_ms"] /= metrics["num_questions"]
+        metrics["avg_total_time_ms"] /= metrics["num_questions"]
 
-    # TODO: Add F1, EM metrics when ground truth is available
-    # This would require implementing string matching and F1 calculation
+    print("\n⚠️  Using basic metrics (latency only)")
+    print(
+        "   For full metrics (EM, F1, Recall@10), ensure evaluation_metrics.py is present"
+    )
 
     return metrics
 
@@ -388,19 +402,42 @@ def eval_mode(num_questions: int = 50):
 
         predictions.append(result)
 
-    # Evaluate
+    # Evaluate with comprehensive or basic metrics
     print("\nEvaluating results...")
-    metrics = evaluate_predictions(predictions, questions)
 
-    # Print metrics
-    print("\n" + "=" * 70)
-    print("EVALUATION RESULTS")
-    print("=" * 70)
-    print(f"Questions: {metrics['num_questions']}")
-    print(f"Avg Retrieval Time: {metrics['avg_retrieve_time_ms']:.1f}ms")
-    print(f"Avg Generation Time: {metrics['avg_generate_time_ms']:.1f}ms")
-    print(f"Avg Total Time: {metrics['avg_total_time_ms']:.1f}ms")
-    print("=" * 70)
+    if evaluate_predictions is not None:
+        # Use comprehensive metrics (EM, F1, Recall@10)
+        metrics = evaluate_predictions(
+            predictions, questions, compute_retrieval_metrics=False
+        )
+
+        # Print formatted results
+        if print_metrics is not None:
+            print_metrics(metrics, "DPR+T5")
+        else:
+            # Manual print if print_metrics not available
+            print("\n" + "=" * 70)
+            print("EVALUATION RESULTS")
+            print("=" * 70)
+            print(f"Exact Match: {metrics.get('exact_match', 0):.2f}%")
+            print(f"F1 Score: {metrics.get('f1_score', 0):.2f}%")
+            print(f"Avg Retrieval Time: {metrics['avg_retrieve_time_ms']:.1f}ms")
+            print(f"Avg Generation Time: {metrics['avg_generate_time_ms']:.1f}ms")
+            print(f"Avg Total Time: {metrics['avg_total_time_ms']:.1f}ms")
+            print("=" * 70)
+    else:
+        # Fall back to basic metrics (latency only)
+        metrics = evaluate_predictions_basic(predictions, questions)
+
+        # Print basic metrics
+        print("\n" + "=" * 70)
+        print("EVALUATION RESULTS (Basic)")
+        print("=" * 70)
+        print(f"Questions: {metrics['num_questions']}")
+        print(f"Avg Retrieval Time: {metrics['avg_retrieve_time_ms']:.1f}ms")
+        print(f"Avg Generation Time: {metrics['avg_generate_time_ms']:.1f}ms")
+        print(f"Avg Total Time: {metrics['avg_total_time_ms']:.1f}ms")
+        print("=" * 70)
 
     # Save results
     output_dir = baseline.base_dir / "outputs" / "results"

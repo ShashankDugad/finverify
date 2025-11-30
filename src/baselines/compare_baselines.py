@@ -141,6 +141,7 @@ def create_detailed_results(bm25_results: dict, dpr_results: dict, output_dir: P
             ]
         )
 
+        # Rows
         for bm25_pred, dpr_pred in zip(bm25_preds, dpr_preds):
             question = bm25_pred["question"]
             bm25_answer = bm25_pred["answer"]
@@ -189,6 +190,7 @@ def print_summary(comparison: dict):
 
     print("\n" + "=" * 70)
 
+    # Determine winner
     bm25_total = comparison["bm25"]["avg_total_time_ms"]
     dpr_total = comparison["dpr"]["avg_total_time_ms"]
 
@@ -206,6 +208,7 @@ def print_summary(comparison: dict):
 def main():
     import os
 
+    # Get base directory
     user = os.environ.get("USER", "unknown")
     base_dir = Path("/scratch") / user / "finverify"
 
@@ -218,6 +221,7 @@ def main():
     print("BASELINE COMPARISON")
     print("=" * 70)
 
+    # Load results
     print("\nLoading results...")
     try:
         bm25_results, dpr_results = load_results(base_dir)
@@ -229,15 +233,18 @@ def main():
         print("  python src/baselines/dpr_t5.py --eval")
         return
 
+    # Compare metrics
     print("\nComparing metrics...")
     comparison = compare_metrics(bm25_results, dpr_results)
 
+    # Create output directory
     output_dir = base_dir / "outputs" / "results"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     figures_dir = base_dir / "outputs" / "figures"
     figures_dir.mkdir(parents=True, exist_ok=True)
 
+    # Generate comparison artifacts
     print("\nGenerating comparison plots...")
     create_comparison_plots(comparison, figures_dir)
 
@@ -247,11 +254,13 @@ def main():
     print("\nCreating detailed results...")
     create_detailed_results(bm25_results, dpr_results, output_dir)
 
+    # Save comparison JSON
     comparison_file = output_dir / "baseline_comparison.json"
     with open(comparison_file, "w") as f:
         json.dump(comparison, f, indent=2)
     print(f"\n✓ Comparison saved to: {comparison_file}")
 
+    # Print summary
     print_summary(comparison)
 
     print("\n✓ Comparison complete!")
