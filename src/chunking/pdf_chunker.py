@@ -150,17 +150,17 @@ if __name__ == "__main__":
         config = yaml.safe_load(f)
     
     # Get paths from config
-    data_raw = Path(config['paths']['data_raw'])
+    base_dir = Path(__file__).parent.parent.parent
     data_processed = Path(config['paths']['data_processed'])
     chunk_size = config['data']['chunk_size']
     chunk_overlap = config['data']['chunk_overlap']
     
-    # FinanceBench PDFs directory
-    financebench_pdfs = data_raw / "financebench" / "pdfs"
+    # PDFs directory - directly from data/pdfs
+    financebench_pdfs = base_dir / "data" / "pdfs"
     
     if not financebench_pdfs.exists():
-        print(f"FinanceBench PDFs directory not found: {financebench_pdfs}")
-        print("Please download FinanceBench PDFs first")
+        print(f"PDFs directory not found: {financebench_pdfs}")
+        print("Please add PDF files to data/pdfs folder first")
     else:
         output_file = data_processed / "chunks.jsonl"
         chunk_pdfs_directory(financebench_pdfs, output_file, chunk_size, chunk_overlap)
