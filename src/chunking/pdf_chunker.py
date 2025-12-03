@@ -96,6 +96,27 @@ def _extract_pdf_elements(pdf_path: Path) -> List[str]:
     return []
 
 
+def _process_pdf_worker(pdf_path_str, chunk_size, chunk_overlap):
+    """
+    Worker function for parallel PDF processing.
+    Must be top-level for multiprocessing pickling.
+    
+    Args:
+        pdf_path_str: PDF path as string
+        chunk_size: Chunk size
+        chunk_overlap: Chunk overlap
+    
+    Returns:
+        Tuple of (pdf_path_str, chunks, error_message)
+    """
+    try:
+        pdf_path = Path(pdf_path_str)
+        chunks = chunk_pdf(pdf_path, chunk_size, chunk_overlap)
+        return pdf_path_str, chunks, None
+    except Exception as e:
+        return pdf_path_str, [], str(e)
+
+
 def chunk_pdf(
     pdf_path: Path,
     chunk_size: int = 512,
@@ -248,6 +269,11 @@ def chunk_pdfs_directory(
         skipped_count = original_count - len(pdf_files)
         if skipped_count > 0:
             print(f"⏭ Skipping {skipped_count} already processed PDFs")
+            # Debug: show sample of processed docs
+            if len(processed_docs) <= 10:
+                print(f"   Processed docs: {sorted(list(processed_docs))}")
+            else:
+                print(f"   Sample processed docs: {sorted(list(processed_docs))[:5]}...")
     
     if not pdf_files:
         print("✓ All PDFs have already been processed!")
@@ -258,45 +284,54 @@ def chunk_pdfs_directory(
     
     print(f"Processing {len(pdf_files)} new PDF files with {num_workers} workers...")
     
-    # Worker function for parallel processing
-    def process_pdf(pdf_path):
-        try:
-            chunks = chunk_pdf(pdf_path, chunk_size, chunk_overlap)
-            return pdf_path, chunks, None
-        except Exception as e:
-            return pdf_path, [], str(e)
-    
     new_chunks = []
     failed_files = []
     
+    # Ensure output directory exists
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # If resuming, we need to append to existing file, otherwise create new
+    # For incremental saving, we'll append new chunks as they're processed
+    if resume and existing_chunks:
+        # File already exists with existing chunks, we'll append to it
+        file_mode = 'a'
+    else:
+        # Create new file (or overwrite if resume=False)
+        file_mode = 'w'
+        # Write existing chunks first if any
+        if existing_chunks:
+            with open(output_path, 'w', encoding='utf-8') as f:
+                for chunk in existing_chunks:
+                    f.write(json.dumps(chunk, ensure_ascii=False) + '\n')
+    
     # Process PDFs in parallel
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
-        # Submit all tasks
+        # Submit all tasks (convert Path to string for pickling)
         future_to_pdf = {
-            executor.submit(process_pdf, pdf_path): pdf_path 
+            executor.submit(_process_pdf_worker, str(pdf_path), chunk_size, chunk_overlap): pdf_path 
             for pdf_path in pdf_files
         }
         
-        # Collect results as they complete
+        # Collect results as they complete and save incrementally
         for future in tqdm(as_completed(future_to_pdf), total=len(pdf_files), desc="Chunking PDFs"):
-            pdf_path, chunks, error = future.result()
+            pdf_path_str, chunks, error = future.result()
             
             if error:
-                print(f"Error processing {pdf_path}: {error}")
-                failed_files.append(pdf_path)
+                print(f"Error processing {pdf_path_str}: {error}")
+                failed_files.append(pdf_path_str)
             else:
                 new_chunks.extend(chunks)
+                # Save incrementally - append new chunks immediately
+                with open(output_path, 'a', encoding='utf-8') as f:
+                    for chunk in chunks:
+                        f.write(json.dumps(chunk, ensure_ascii=False) + '\n')
+                    f.flush()  # Ensure it's written to disk immediately
     
-    # Combine existing and new chunks
+    # Combine existing and new chunks for return value
     all_chunks = existing_chunks + new_chunks
     
-    # Save all chunks to JSONL format (overwrite to include new chunks)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, 'w', encoding='utf-8') as f:
-        for chunk in all_chunks:
-            f.write(json.dumps(chunk, ensure_ascii=False) + '\n')
-    
-    print(f"✓ Saved {len(all_chunks)} total chunks ({len(new_chunks)} new) to {output_path}")
+    print(f"✓ Saved {len(new_chunks)} new chunks incrementally to {output_path}")
+    print(f"✓ Total chunks: {len(all_chunks)} ({len(existing_chunks)} existing + {len(new_chunks)} new)")
     if failed_files:
         print(f"⚠ Failed to process {len(failed_files)} files")
     
