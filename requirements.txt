@@ -13,6 +13,8 @@ pandas>=2.0.0
 numpy>=1.24.0
 pyarrow>=13.0.0
 unstructured[pdf]>=0.10.0
+pymupdf>=1.23.0  # PyMuPDF - robust PDF parser (fallback for poppler issues)
+pdfplumber>=0.10.0  # Alternative PDF parser (fallback)
 
 # Utilities
 tqdm>=4.65.0
