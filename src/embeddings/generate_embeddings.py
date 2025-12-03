@@ -74,17 +74,37 @@ def generate_embeddings(
         model_name = config['models']['embedder']['name']
     if batch_size is None:
         batch_size = config['models']['embedder'].get('batch_size', 128)
-    if device is None:
-        device = config['models']['embedder'].get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
     
-    # Check GPU
+    # Auto-detect best device if not specified
+    if device is None:
+        device = config['models']['embedder'].get('device', None)
+        if device is None:
+            # Auto-detect: prefer CUDA, then MPS, then CPU
+            if torch.cuda.is_available():
+                device = "cuda"
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                device = "mps"
+            else:
+                device = "cpu"
+    
+    # Handle device fallback
     if device == "cuda" and not torch.cuda.is_available():
-        print("CUDA requested but not available, using CPU")
-        device = "cpu"
+        if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            print("CUDA not available, using MPS (Apple Silicon GPU) instead")
+            device = "mps"
+        else:
+            print("CUDA not available, using CPU")
+            device = "cpu"
+    elif device == "mps":
+        if not (hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()):
+            print("MPS not available, using CPU")
+            device = "cpu"
     
     print(f"\nDevice: {device}")
     if device == "cuda":
         print(f"GPU: {torch.cuda.get_device_name(0)}")
+    elif device == "mps":
+        print("GPU: Apple Silicon (MPS)")
     
     # Load model
     print(f"\nLoading embedding model: {model_name}...")
