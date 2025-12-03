@@ -35,9 +35,10 @@ def _extract_pdf_elements(pdf_path: Path) -> List[str]:
     Extract text elements from PDF using multiple fallback methods.
     
     Tries in order:
-    1. unstructured (poppler-based)
-    2. PyMuPDF (fitz) - more robust for complex PDFs
-    3. pdfplumber - good for text extraction
+    1. unstructured with "fast" strategy (fast, no OCR)
+    2. unstructured with "hi_res" strategy (slower, with OCR if needed)
+    3. PyMuPDF (fitz) - more robust for complex PDFs
+    4. pdfplumber - good for text extraction
     
     Args:
         pdf_path: Path to PDF file
@@ -46,22 +47,24 @@ def _extract_pdf_elements(pdf_path: Path) -> List[str]:
         List of text elements (strings)
     """
     elements = []
+    errors = []  # Track errors for better debugging
     
-    # Method 1: Try unstructured (poppler-based)
+    # Method 1: Try unstructured with "fast" strategy first (no OCR, faster)
     if HAS_UNSTRUCTURED:
-        try:
-            unstructured_elements = partition_pdf(
-                pdf_path, 
-                url=None, 
-                infer_table_structure=False,
-                strategy="hi_res"  # Use high-res strategy for better parsing
-            )
-            elements = [str(elem) for elem in unstructured_elements if str(elem).strip()]
-            if elements:
-                return elements
-        except Exception as e:
-            # If unstructured fails, try fallback methods
-            pass
+        for strategy in ["fast", "hi_res"]:  # Try fast first, then hi_res if needed
+            try:
+                unstructured_elements = partition_pdf(
+                    pdf_path, 
+                    url=None, 
+                    infer_table_structure=False,
+                    strategy=strategy
+                )
+                elements = [str(elem) for elem in unstructured_elements if str(elem).strip()]
+                if elements:
+                    return elements
+            except Exception as e:
+                errors.append(f"unstructured({strategy}): {str(e)}")
+                # Continue to next method
     
     # Method 2: Fallback to PyMuPDF (more robust)
     if HAS_PYMUPDF:
@@ -76,7 +79,7 @@ def _extract_pdf_elements(pdf_path: Path) -> List[str]:
             if elements:
                 return elements
         except Exception as e:
-            pass
+            errors.append(f"PyMuPDF: {str(e)}")
     
     # Method 3: Fallback to pdfplumber
     if HAS_PDFPLUMBER:
@@ -90,9 +93,10 @@ def _extract_pdf_elements(pdf_path: Path) -> List[str]:
             if elements:
                 return elements
         except Exception as e:
-            pass
+            errors.append(f"pdfplumber: {str(e)}")
     
     # If all methods fail, return empty list
+    # Errors are tracked but not returned (will be in exception message)
     return []
 
 
@@ -142,7 +146,14 @@ def chunk_pdf(
     elements = _extract_pdf_elements(pdf_path)
     
     if not elements:
-        raise ValueError(f"Could not extract any content from PDF: {pdf_path}")
+        raise ValueError(
+            f"Could not extract any content from PDF: {pdf_path}\n"
+            f"All extraction methods (unstructured, PyMuPDF, pdfplumber) failed.\n"
+            f"This might be:\n"
+            f"- An image-based PDF (scanned document) requiring OCR\n"
+            f"- A corrupted or password-protected PDF\n"
+            f"- A PDF with unusual encoding"
+        )
     
     chunks = []
     current_chunk = []
@@ -290,19 +301,22 @@ def chunk_pdfs_directory(
     # Ensure output directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
-    # If resuming, we need to append to existing file, otherwise create new
-    # For incremental saving, we'll append new chunks as they're processed
-    if resume and existing_chunks:
-        # File already exists with existing chunks, we'll append to it
-        file_mode = 'a'
+    # Handle file creation/opening for resume mode
+    # If resuming and file exists, don't overwrite - just append new chunks
+    if resume and output_path.exists():
+        # File already exists with existing chunks loaded above
+        # We'll append new chunks incrementally, don't write existing_chunks again
+        pass
     else:
         # Create new file (or overwrite if resume=False)
-        file_mode = 'w'
-        # Write existing chunks first if any
+        # Write existing chunks first if any (shouldn't happen in normal flow, but safe)
         if existing_chunks:
             with open(output_path, 'w', encoding='utf-8') as f:
                 for chunk in existing_chunks:
                     f.write(json.dumps(chunk, ensure_ascii=False) + '\n')
+        else:
+            # Create empty file to ensure it exists for appending
+            output_path.touch()
     
     # Process PDFs in parallel
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
