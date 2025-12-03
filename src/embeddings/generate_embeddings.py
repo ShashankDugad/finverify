@@ -107,12 +107,25 @@ def generate_embeddings(
     print(f"\nDevice: {device}")
     if device == "cuda":
         print(f"GPU: {torch.cuda.get_device_name(0)}")
+        print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+        # Enable optimizations for CUDA
+        torch.backends.cudnn.benchmark = True  # Optimize for consistent input sizes
+        torch.backends.cuda.matmul.allow_tf32 = True  # Use TensorFloat-32 for faster matmul
     elif device == "mps":
         print("GPU: Apple Silicon (MPS)")
     
     # Load model
     print(f"\nLoading embedding model: {model_name}...")
     model = SentenceTransformer(model_name, device=device)
+    
+    # Verify model is on correct device
+    if device == "cuda":
+        # Check if model is actually on GPU
+        model_device = next(model[0].parameters()).device
+        if model_device.type != "cuda":
+            print(f"⚠ Warning: Model loaded on {model_device}, expected cuda")
+        else:
+            print(f"✓ Model confirmed on GPU: {model_device}")
     
     # Load chunks
     print(f"Loading chunks from {chunks_path}...")
@@ -174,18 +187,30 @@ def generate_embeddings(
     
     num_batches = (remaining_count + batch_size - 1) // batch_size
     
+    # GPU memory info for CUDA
+    if device == "cuda":
+        initial_memory = torch.cuda.memory_allocated() / 1e9
+        print(f"GPU Memory allocated: {initial_memory:.2f} GB")
+    
     for batch_idx in tqdm(range(0, remaining_count, batch_size), desc="Batches", total=num_batches):
         batch = remaining_texts[batch_idx:batch_idx+batch_size]
         
-        embeddings = model.encode(
-            batch,
-            batch_size=batch_size,
-            show_progress_bar=False,
-            convert_to_numpy=True,
-            normalize_embeddings=True  # Normalize for cosine similarity
-        )
+        # Use torch.no_grad() for inference to save memory and speed up
+        with torch.no_grad():
+            embeddings = model.encode(
+                batch,
+                batch_size=batch_size,
+                show_progress_bar=False,
+                convert_to_numpy=True,
+                normalize_embeddings=True,  # Normalize for cosine similarity
+                device=device  # Explicitly specify device
+            )
         
         new_embeddings.append(embeddings)
+        
+        # Clear GPU cache periodically to prevent OOM
+        if device == "cuda" and (batch_idx + 1) % 50 == 0:
+            torch.cuda.empty_cache()
         
         # Save incrementally every N batches
         if len(new_embeddings) >= save_every_n_batches:
@@ -221,6 +246,13 @@ def generate_embeddings(
     # Final save
     print(f"\nSaving final embeddings to {output_path}...")
     np.save(output_path, all_embeddings)
+    
+    # Final GPU memory info
+    if device == "cuda":
+        final_memory = torch.cuda.memory_allocated() / 1e9
+        max_memory = torch.cuda.max_memory_allocated() / 1e9
+        print(f"GPU Memory - Final: {final_memory:.2f} GB, Peak: {max_memory:.2f} GB")
+        torch.cuda.reset_peak_memory_stats()  # Reset for next run
     
     print(f"\n✓ Embeddings shape: {all_embeddings.shape}")
     print(f"✓ Total processed: {all_embeddings.shape[0]:,} / {total_chunks:,} chunks")
