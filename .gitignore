@@ -14,6 +14,9 @@ data/embeddings/*
 *.bin
 *.safetensors
 
+src/bkup/*
+bkup/*
+
 # Python
 __pycache__/
 *.py[cod]

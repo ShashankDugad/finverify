@@ -64,6 +64,7 @@ models:
     name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
     batch_size: 64
     threshold: 0.7
+    device: "cuda"  # or "cpu"
 
 retrieval:
   # MAINRAG multi-aspect retrieval
