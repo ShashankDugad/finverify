@@ -1,11 +1,16 @@
 # Core ML libraries
-torch>=2.0.0
+# For CUDA GPU: Install torch with CUDA support
+# pip install torch --index-url https://download.pytorch.org/whl/cu118
+# For CPU/MPS: pip install torch
+torch>=2.0.0  # Supports MPS (Apple Silicon GPU) and CUDA
 transformers>=4.35.0
 sentence-transformers>=2.2.0
 datasets>=2.14.0
 
 # Retrieval
-faiss-cpu>=1.7.4
+# For CUDA GPU: pip install faiss-gpu
+# For CPU/MPS: pip install faiss-cpu
+faiss-gpu>=1.7.4  # Use faiss-cpu>=1.7.4 for CPU/MPS
 rank-bm25>=0.2.2
 
 # Data processing
