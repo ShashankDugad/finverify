@@ -37,17 +37,21 @@ def generate_embeddings(
     output_path: Path = None,
     model_name: str = None,
     batch_size: int = None,
-    device: str = None
+    device: str = None,
+    resume: bool = True,
+    save_every_n_batches: int = 10
 ):
     """
-    Generate embeddings for all chunks.
+    Generate embeddings for all chunks with resume support.
     
     Args:
         chunks_path: Path to chunks JSON/JSONL file (if None, uses config)
         output_path: Path to save embeddings.npy (if None, uses config)
         model_name: Embedding model name (if None, uses config)
         batch_size: Batch size for encoding (if None, uses config)
-        device: Device to use ('cuda' or 'cpu', if None, auto-detects)
+        device: Device to use ('cuda', 'mps', or 'cpu', if None, auto-detects)
+        resume: If True, resume from existing embeddings (default: True)
+        save_every_n_batches: Save embeddings every N batches (default: 10)
     """
     print("=" * 60)
     print("BGE Embedding Generator")
@@ -131,13 +135,47 @@ def generate_embeddings(
     
     # Extract texts
     texts = [chunk['text'] if isinstance(chunk, dict) else chunk for chunk in chunks]
+    total_chunks = len(texts)
+    
+    # Load existing embeddings if resuming
+    existing_embeddings = None
+    processed_count = 0
+    
+    if resume and output_path.exists():
+        try:
+            print(f"\nLoading existing embeddings from {output_path}...")
+            existing_embeddings = np.load(output_path)
+            processed_count = existing_embeddings.shape[0]
+            print(f"✓ Found {processed_count:,} existing embeddings")
+            
+            if processed_count >= total_chunks:
+                print("✓ All chunks already have embeddings!")
+                return existing_embeddings
+            else:
+                print(f"⏭ Resuming from chunk {processed_count:,} / {total_chunks:,}")
+        except Exception as e:
+            print(f"⚠ Could not load existing embeddings: {e}")
+            print("Starting from scratch...")
+            existing_embeddings = None
+            processed_count = 0
+    
+    # Calculate how many batches to process
+    start_idx = processed_count
+    remaining_texts = texts[start_idx:]
+    remaining_count = len(remaining_texts)
+    
+    if remaining_count == 0:
+        print("✓ All embeddings already generated!")
+        return existing_embeddings
     
     # Generate embeddings in batches
-    print(f"\nGenerating embeddings (batch_size={batch_size})...")
-    all_embeddings = []
+    print(f"\nGenerating embeddings for {remaining_count:,} remaining chunks (batch_size={batch_size})...")
+    new_embeddings = []
     
-    for i in tqdm(range(0, len(texts), batch_size), desc="Batches"):
-        batch = texts[i:i+batch_size]
+    num_batches = (remaining_count + batch_size - 1) // batch_size
+    
+    for batch_idx in tqdm(range(0, remaining_count, batch_size), desc="Batches", total=num_batches):
+        batch = remaining_texts[batch_idx:batch_idx+batch_size]
         
         embeddings = model.encode(
             batch,
@@ -147,17 +185,45 @@ def generate_embeddings(
             normalize_embeddings=True  # Normalize for cosine similarity
         )
         
-        all_embeddings.append(embeddings)
+        new_embeddings.append(embeddings)
+        
+        # Save incrementally every N batches
+        if len(new_embeddings) >= save_every_n_batches:
+            # Concatenate new embeddings so far
+            temp_embeddings = np.vstack(new_embeddings)
+            
+            # Combine with existing if any
+            if existing_embeddings is not None:
+                combined = np.vstack([existing_embeddings, temp_embeddings])
+            else:
+                combined = temp_embeddings
+            
+            # Save checkpoint
+            np.save(output_path, combined)
+            
+            # Update existing_embeddings and reset new_embeddings
+            existing_embeddings = combined
+            new_embeddings = []
     
-    # Concatenate
-    print("\nConcatenating embeddings...")
-    all_embeddings = np.vstack(all_embeddings)
+    # Concatenate any remaining new embeddings
+    if new_embeddings:
+        print("\nConcatenating final embeddings...")
+        final_new = np.vstack(new_embeddings)
+        
+        # Combine with existing
+        if existing_embeddings is not None:
+            all_embeddings = np.vstack([existing_embeddings, final_new])
+        else:
+            all_embeddings = final_new
+    else:
+        all_embeddings = existing_embeddings
     
-    # Save
-    print(f"\nSaving embeddings to {output_path}...")
+    # Final save
+    print(f"\nSaving final embeddings to {output_path}...")
     np.save(output_path, all_embeddings)
     
     print(f"\n✓ Embeddings shape: {all_embeddings.shape}")
+    print(f"✓ Total processed: {all_embeddings.shape[0]:,} / {total_chunks:,} chunks")
     print(f"✓ Saved to: {output_path}")
     
     return all_embeddings
