@@ -1,0 +1,4 @@
+"""
+Evaluation module for FinVERIFY
+"""
+
